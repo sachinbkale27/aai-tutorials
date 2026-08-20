@@ -1,0 +1,40 @@
+# Minimal metrics-only observability stack: OTel Collector + Prometheus + Grafana.
+# Traces/Tempo are intentionally omitted here (see tutorial 11 §4 to add them).
+#
+# The whole point of the Collector: an OTLP app *pushes* (gRPC :4317), but
+# Prometheus *pulls* (scrapes). The Collector bridges the two by exposing a
+# prometheus exporter on :8889/metrics that Prometheus then scrapes.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC in (your app pushes here as localhost:4317)
+      - "4318:4318"   # OTLP HTTP in
+      - "8889:8889"   # prometheus exporter OUT — Prometheus scrapes this
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    # Datasource is provisioned as code so `git clone && docker compose up` just works.
+    # NOTE: the provisioned datasource pins a fixed uid (see provisioning file); if you
+    # ever change that uid, recreate Grafana (`up -d --force-recreate grafana`), a plain
+    # restart can keep the stale uid in Grafana's SQLite state.
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

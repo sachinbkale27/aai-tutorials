@@ -1,0 +1,27 @@
+# OTel Collector: OTLP in (push), Prometheus exporter out (pull).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  # Prometheus scrapes THIS at :8889/metrics. This exporter is the push->pull bridge:
+  # without it (or without the scrape job in prometheus.yml) metrics silently never appear.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Turn OTel resource attributes into Prometheus labels so they're queryable.
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

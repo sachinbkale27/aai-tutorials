@@ -1,0 +1,16 @@
+# Colang dialog rail: an app-specific off-topic refusal.
+# The runtime does semantic matching between the user's message and these
+# example utterances, then runs the flow (a bot refusal, no main-LLM call).
+
+define user ask off topic
+  "what stocks should I buy"
+  "give me investment advice"
+  "recommend a stock to invest in"
+  "diagnose my symptoms"
+
+define bot refuse off topic
+  "I only help with incidents, alerts, and operational runbooks. Want me to page a human?"
+
+define flow off topic
+  user ask off topic
+  bot refuse off topic

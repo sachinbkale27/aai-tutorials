@@ -1,0 +1,14 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Inside the compose network Grafana reaches Prometheus by service name.
+    url: http://prometheus:9090
+    isDefault: true
+    # A FIXED uid is required. Provisioned dashboards bind datasources by uid; if you
+    # let Grafana auto-generate a random uid, dashboard panels show "datasource not
+    # found". After changing a uid, recreate Grafana (not just restart):
+    #   docker compose up -d --force-recreate grafana
+    uid: prometheus

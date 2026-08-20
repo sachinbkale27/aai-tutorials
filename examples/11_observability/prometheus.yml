@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  # Prometheus scrapes the Collector's prometheus exporter, NOT your app.
+  # Use the compose SERVICE NAME here (otel-collector), not localhost — Prometheus
+  # reaches the exporter inside the compose network. Using localhost is the #1
+  # "why is my target down" mistake.
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']

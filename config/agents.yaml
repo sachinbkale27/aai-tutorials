@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent roster — CONFIG-DRIVEN. Trimmed to exactly the keys read by
+# examples/06_orchestrator_worker.py (the only consumer in this repo):
+#   • workers[].name              -> the roster of nodes to fan out
+#   • workers[].latency           -> mock latency the stub worker sleeps for
+#   • workers[].finding           -> the canned finding the stub worker returns
+#   • orchestrator.few_shot[]     -> alert -> plan exemplars the planner reuses
+#   • synthesis.role              -> the synthesizer's prompt
+#   • remediation.actions         -> the allowed (HITL-gated) remediation actions
+# Worker methods look themselves up here by name; behavior is data, not code.
+# ─────────────────────────────────────────────────────────────────────────────
+
+orchestrator:
+  # Few-shot exemplars: the planner matches an alert and reuses its worker plan.
+  few_shot:
+    - alert: "5xx rate on checkout-api spiked to 12% at 02:14 UTC"
+      plan: ["metric_fetcher", "log_analyzer", "code_searcher", "runbook_retriever"]
+    - alert: "disk usage on db-primary at 94%"
+      plan: ["metric_fetcher", "runbook_retriever"]
+
+workers:
+  - name: log_analyzer
+    latency: 1.0
+    finding: "NullPointerException in CartService.total(), first seen 02:14 UTC"
+  - name: metric_fetcher
+    latency: 1.2
+    finding: "5xx 0.2%->12% at 02:14, exactly at deploy marker v482"
+  - name: code_searcher
+    latency: 0.8
+    finding: "v482 changed CartService.total(), removed a null guard (author: dana)"
+  - name: runbook_retriever
+    latency: 0.6
+    finding: "runbook 'checkout-5xx.md': on deploy-correlated 5xx, roll back the deploy"
+
+synthesis:
+  role: >
+    Combine the workers' findings into: (1) a single most-likely ROOT CAUSE with a
+    confidence, (2) the evidence for it, and (3) a concrete PROPOSED REMEDIATION as
+    one of the allowed remediation actions. Be explicit that the remediation is a
+    PROPOSAL requiring human approval. Never claim you executed anything.
+
+remediation:
+  # allowed actions the synthesizer may propose; each is HITL-gated
+  actions: [restart_service, rollback_deploy, scale_service]

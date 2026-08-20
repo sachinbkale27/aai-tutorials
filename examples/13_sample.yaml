@@ -1,0 +1,12 @@
+# 13 · Config-driven design — sample policy config.
+#
+# `defaults` is the baseline every item inherits.
+# `tools` holds per-item overrides that win over the defaults on merge.
+# The whole point: change behavior by editing THIS file + calling reload(),
+# with no change to the Python that reads it.
+defaults:
+  retries: 2
+  timeout_s: 5
+tools:
+  send_email:  {retries: 0}      # override: never auto-retry a send (it mutates)
+  fetch_stats: {timeout_s: 30}   # override: this backend is slow
