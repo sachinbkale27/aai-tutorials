@@ -132,7 +132,7 @@ g.add_edge("cache_write", END)
 app = g.compile()
 ```
 
-**What it looks like running** — `examples/16_langgraph_redis_semantic_cache.py`, cold cache then paraphrases, against a real Redis Stack and a real `gpt-4o-mini`:
+**What it looks like running** — `examples/16_semantic_cache/demo.py`, cold cache then paraphrases, against a real Redis Stack and a real `gpt-4o-mini`:
 
 ```
 A — cold cache: every question misses and pays for the LLM
@@ -154,7 +154,21 @@ C — the threshold earns its keep: a DIFFERENT question must MISS
 
 **1650ms → 3.2ms**, and a completion not billed. Part C is the important one: the cache *declined*. A semantic cache that never says no is a bug generator.
 
-The example degrades gracefully — no Redis falls back to an in-memory numpy store, no `OPENAI_API_KEY` falls back to a toy lexical embedder — so you can read the flow offline. See the threshold caveat in Section 5.
+The example degrades gracefully — no Redis falls back to an in-memory store, no `OPENAI_API_KEY` falls back to a toy lexical embedder — so you can read the flow offline. See the threshold caveat in Section 5.
+
+**How it's laid out.** `examples/16_semantic_cache/` splits the four concepts into modules with a one-directional dependency chain, so each file answers one question:
+
+| Module | Owns |
+|---|---|
+| `demo.py` | the three scenarios (cold / paraphrase / must-miss) |
+| `graph.py` | the topology — nodes and the conditional edge, nothing else |
+| `cache.py` | **the threshold decision**: is this neighbour the same question? |
+| `llm.py` | the expensive call the cache exists to avoid |
+| `store.py` | vector storage + KNN (Redis, or a list) |
+| `embeddings.py` | text → vector, **and that backend's threshold** |
+| `config.py` | TTL, namespace, index names |
+
+Two seams carry the design: `store.py` knows nothing about thresholds or questions (swap it for pgvector without touching another file), and `cache.py` has no LangGraph import — it's the piece you lift into a real service.
 
 ---
 
@@ -286,9 +300,12 @@ Also worth caching at other layers: retrieval results (tutorial 04), tool result
 **The threshold is a property of the embedder, not a constant.** This is the one that surprises people, and the example demonstrates it live. The same paraphrase pair — `"...in prod?"` vs `"...in production?"` — scores **0.867** with the toy lexical embedder and ~0.95+ with real embeddings. A hardcoded `0.92` therefore gives a 100% hit rate with one embedder and **0%** with the other, on identical code and identical questions. So pick the threshold *with* the embedder:
 
 ```python
-if OPENAI_KEY:  DIM, THRESHOLD = 1536, 0.92   # paraphrases 0.93-0.99, distinct <0.85
-else:           DIM, THRESHOLD =  512, 0.80   # toy embedder: flatter distribution
+# embeddings.py — the threshold lives WITH the backend, so they can't drift apart
+def threshold() -> float:
+    return 0.92 if _backend() == "openai" else 0.80   # toy: flatter distribution
 ```
+
+Keeping it in `config.py` alongside the TTL would look tidier and be wrong — one is a property of your *traffic*, the other of your *model*.
 
 **Calibrate, don't guess:** label ~50 real query pairs as same-intent/different-intent, plot the two score distributions, and pick the cutoff that maximises hit rate **subject to zero false hits**. Re-calibrate on every embedder change. Asymmetric costs: a false miss costs one API call, a false hit costs a wrong answer to a user.
 
@@ -334,17 +351,17 @@ if not any(m[b"name"] == b"search" for m in r.execute_command("MODULE", "LIST"))
 
 ## 6. Exercises
 
-1. **Run it both ways.** Run `examples/16_langgraph_redis_semantic_cache.py` with and without Redis (`REDIS_URL=redis://localhost:9999` forces the in-memory fallback). Confirm the hit/miss pattern is identical and explain why the store is swappable but the *threshold* is not.
+1. **Run it both ways.** Run `examples/16_semantic_cache/demo.py` with and without Redis (`REDIS_URL=redis://localhost:9999` forces the in-memory fallback). Confirm the hit/miss pattern is identical, then explain why `store.py` is swappable without touching another file but the threshold in `embeddings.py` is not.
 
-2. **Break it with the threshold.** In `setup()`, change the toy embedder's `THRESHOLD` from `0.80` to `0.92`, re-run, and watch section B's hit rate go to zero. Then set it to `0.25` and watch section C's on-call question get answered from the "restart api" entry — a confidently **wrong** answer. Write down the two costs you just traded.
+2. **Break it with the threshold.** In `embeddings.py`, change the toy backend's `threshold()` from `0.80` to `0.92`, re-run, and watch section B's hit rate go to zero. Then set it to `0.25` and watch section C's on-call question get answered from the "restart api" entry — a confidently **wrong** answer. Write down the two costs you just traded.
 
 3. **Prove the distance/similarity trap.** Store one entry, query with the identical text, and print the raw `d.score`. Confirm it's ≈0, not ≈1. Then "fix" the code to treat `score` as similarity and describe the resulting cache behaviour in one sentence.
 
-4. **Add a namespace bump.** Populate the cache, then change `PROMPT_VERSION` from `v1` to `v2` and re-run without clearing Redis. Confirm every question misses, and that `FT.INFO num_docs` shows the old entries still present but unreachable.
+4. **Add a namespace bump.** Populate the cache, then change `PROMPT_VERSION` in `config.py` from `v1` to `v2` and re-run without clearing Redis. Confirm every question misses, and that `FT.INFO num_docs` shows the old entries still present but unreachable.
 
 5. **Instrument it.** Add `cache.hit` / `cache.miss` counters and a `similarity` histogram via tutorial 10's OpenTelemetry setup, then log the similarity of every rejected near-miss. Run 20 questions and use the collected scores to pick a better threshold than the default.
 
-6. **Cache the embedder.** Add an `lru_cache` in front of `embed()` and measure the hit-path latency before and after. Report how much of your "free" cache hit was actually an embedding call.
+6. **Cache the embedder.** Add an `lru_cache` in front of `embed()` in `embeddings.py` and measure the hit-path latency before and after. Report how much of your "free" cache hit was actually an embedding call. Note that no other module has to change — that's the seam working.
 
 7. **(Capstone) Wire it into the Copilot.** Implement `config/cache.yaml` and a `app/cache.py` following the `app/resilience.py` loader pattern (`:21-30`). Add an exact tool-result cache inside `guarded_tool` (`app/resilience.py:77`) honouring the per-tool TTLs and refusing to cache the three mutating tools, and a semantic cache around the synthesis call (`app/incident.py:114-121`) keyed on **alert + findings digest**. Emit a `cache.hit` SSE event (tutorial 14) so the UI badges cached answers, add hit rate to `metrics.snapshot()` (`app/metrics.py:164`), and verify with a replayed flapping alert that the second occurrence skips the model. Then write down what you'd need to observe in production before raising the TTL.
 
