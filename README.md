@@ -29,6 +29,7 @@ build-up variations → gotchas → **exercises to master it** → links to rela
 | 13 | [Config-driven design](13-config-driven-design.md) | Behavior in YAML, hot-reload, the loader pattern |
 | 14 | [SSE streaming (glass-box)](14-sse-streaming.md) | Server-Sent Events, an event contract, live UIs |
 | 15 | [RAGAS (RAG evaluation)](15-ragas.md) | Faithfulness, answer relevancy, context precision/recall; wiring into CI |
+| 16 | [LangGraph + Redis (semantic caching)](16-langgraph-redis-semantic-caching.md) | Vector-similarity cache as a graph edge; thresholds, namespaces, TTLs |
 
 ## General best practices (project-agnostic)
 See **[BEST_PRACTICES.md](BEST_PRACTICES.md)** — the cross-cutting principles for any agentic/LLM
@@ -37,7 +38,7 @@ config-driven design, honesty). The per-tutorial `## ✅ Best Practices` section
 component-specific patterns; this is the universal layer.
 
 ## Prerequisites
-- Python 3.11, Node (for the SSE/UI tutorial), Docker (for the observability tutorial).
+- Python 3.11, Node (for the SSE/UI tutorial), Docker (for the observability stack and the Redis semantic-cache tutorial).
 - Reference project: `~/projects/nvidia-aai` (the On-Call Copilot). Each tutorial cites its real files.
 
 ## Suggested pace

@@ -39,3 +39,4 @@ how to run it.
 | 13 Config-driven design | `13_config_driven.py` (+ `13_sample.yaml`) |
 | 14 SSE streaming | `14_sse_server.py` (+ curl/client note) |
 | 15 RAGAS (RAG eval) | `15_ragas.py` (real run needs pinned ragas + a key; offline demo otherwise) |
+| 16 LangGraph + Redis semantic cache | `16_langgraph_redis_semantic_cache.py` (best with Redis Stack; in-memory fallback otherwise) |

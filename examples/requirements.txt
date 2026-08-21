@@ -13,6 +13,10 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 pyyaml>=6.0
 pytest>=8.0
+numpy>=1.26
+redis>=5.0            # example 16: vector search needs the RediSearch module —
+                      #   docker run -d -p 6379:6379 redis/redis-stack-server:latest
+                      #   (plain `redis:7` connects but has no vector index)
 # RAGAS (example 15) — version-sensitive; install in a CLEAN venv (conflicts with pinned langchain/nemoguardrails):
 #   pip install "ragas==0.2.10" "langchain-community==0.3.14" "langchain-openai>=0.2"
 #   (newer langchain-community removes langchain_community.chat_models.vertexai, which ragas imports)
