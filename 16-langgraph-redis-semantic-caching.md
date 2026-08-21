@@ -135,17 +135,21 @@ app = g.compile()
 **What it looks like running** — `examples/16_langgraph_redis_semantic_cache.py`, cold cache then paraphrases, against a real Redis Stack and a real `gpt-4o-mini`:
 
 ```
-PART A — cold cache: every question is a miss and pays for the LLM
-  [MISS] 'How do I restart the api service in prod?'      sim=0.000  wall=1650.6ms
-  [MISS] 'What is the api availability SLO?'               sim=0.128  wall=1946.9ms
+A — cold cache: every question misses and pays for the LLM
+  [MISS] 'How do I restart the api service in prod?'
+         sim=0.000   1650.6ms
+  [MISS] 'What is the api availability SLO?'
+         sim=0.128   1946.9ms
 
-PART B — paraphrases: different strings, same intent -> served from Redis
-  [HIT ] 'How do I restart the api service in production?' sim=0.867  wall=   3.2ms
-         matched='How do I restart the api service in prod?'
-  [HIT ] 'What is the availability SLO for the api?'       sim=0.857  wall=   2.3ms
+B — paraphrases: different strings, same intent -> served from cache
+  [HIT ] 'How do I restart the api service in production?'
+         sim=0.867      3.2ms  matched='How do I restart the api service in prod?'
+  [HIT ] 'What is the availability SLO for the api?'
+         sim=0.857      2.3ms  matched='What is the api availability SLO?'
 
-PART C — the threshold earns its keep: a DIFFERENT question must miss
-  [MISS] 'Who is the on-call engineer for the billing service tonight?'  sim=0.291
+C — the threshold earns its keep: a DIFFERENT question must MISS
+  [MISS] 'Who is the on-call engineer for the billing service tonight?'
+         sim=0.291    979.4ms
 ```
 
 **1650ms → 3.2ms**, and a completion not billed. Part C is the important one: the cache *declined*. A semantic cache that never says no is a bug generator.
@@ -251,7 +255,7 @@ g.add_node("retrieve", retrieve,
 app = g.compile(cache=RedisCache(redis.Redis.from_url(REDIS_URL)))
 ```
 
-Verified in the example (`langgraph 1.2.4`): the second identical invocation skips the node entirely (207ms → 1.2ms, node body executed once for two invocations). Change one word and it runs again — that's the line between the two mechanisms:
+Measured on `langgraph 1.2.4` with the `RedisCache` backend above: the second identical invocation skips the node entirely (161ms → 1.2ms, node body executed once across two invocations). Change one word of the input and it runs again — that's the line between the two mechanisms:
 
 - **Built-in `CachePolicy`** → per-node memoization, exact key, near-zero effort. Use it on retrieval and tool nodes.
 - **Your semantic cache node** → question-level reuse across paraphrases. Use it in front of the LLM.
@@ -279,11 +283,11 @@ Also worth caching at other layers: retrieval results (tutorial 04), tool result
 
 ## 5. Gotchas & pitfalls
 
-**The threshold is a property of the embedder, not a constant.** This is the one that surprises people, and the example demonstrates it live. The same paraphrase pair scored **0.867** with the toy lexical embedder and would score ~0.95+ with real embeddings. A hardcoded `0.92` gives a 43% hit rate with one embedder and 0% with the other — same code, same questions. So:
+**The threshold is a property of the embedder, not a constant.** This is the one that surprises people, and the example demonstrates it live. The same paraphrase pair — `"...in prod?"` vs `"...in production?"` — scores **0.867** with the toy lexical embedder and ~0.95+ with real embeddings. A hardcoded `0.92` therefore gives a 100% hit rate with one embedder and **0%** with the other, on identical code and identical questions. So pick the threshold *with* the embedder:
 
 ```python
-class OpenAIEmbedder:  threshold = 0.92   # paraphrases 0.93-0.99, distinct pairs <0.85
-class LexicalEmbedder: threshold = 0.80   # flatter score distribution
+if OPENAI_KEY:  DIM, THRESHOLD = 1536, 0.92   # paraphrases 0.93-0.99, distinct <0.85
+else:           DIM, THRESHOLD =  512, 0.80   # toy embedder: flatter distribution
 ```
 
 **Calibrate, don't guess:** label ~50 real query pairs as same-intent/different-intent, plot the two score distributions, and pick the cutoff that maximises hit rate **subject to zero false hits**. Re-calibrate on every embedder change. Asymmetric costs: a false miss costs one API call, a false hit costs a wrong answer to a user.
@@ -332,7 +336,7 @@ if not any(m[b"name"] == b"search" for m in r.execute_command("MODULE", "LIST"))
 
 1. **Run it both ways.** Run `examples/16_langgraph_redis_semantic_cache.py` with and without Redis (`REDIS_URL=redis://localhost:9999` forces the in-memory fallback). Confirm the hit/miss pattern is identical and explain why the store is swappable but the *threshold* is not.
 
-2. **Break it with the threshold.** Set the lexical embedder's `threshold` to `0.92`, re-run, and watch Part B's hit rate go to zero. Then set it to `0.25` and find the question in Part C that gets a **wrong** answer. Write down the two costs you just traded.
+2. **Break it with the threshold.** In `setup()`, change the toy embedder's `THRESHOLD` from `0.80` to `0.92`, re-run, and watch section B's hit rate go to zero. Then set it to `0.25` and watch section C's on-call question get answered from the "restart api" entry — a confidently **wrong** answer. Write down the two costs you just traded.
 
 3. **Prove the distance/similarity trap.** Store one entry, query with the identical text, and print the raw `d.score`. Confirm it's ≈0, not ≈1. Then "fix" the code to treat `score` as similarity and describe the resulting cache behaviour in one sentence.
 
